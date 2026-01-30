@@ -4,6 +4,7 @@ use crate::{
     constants::{STAKE_VAULT_SEED, USER_STAKE_SEED},
     error::ErrorCode,
     state::{StakeVault, UnstakeRequest, UserStake},
+    instructions::helpers::{refresh_user_rewards, update_reward_snapshot_after_stake_change},
 };
 
 #[derive(Accounts)]
@@ -43,14 +44,20 @@ pub fn handler(ctx: Context<CancelUnstake>, params: CancelUnstakeParams) -> Resu
         ErrorCode::InvalidUnstakeRequestId
     );
 
-    let request = &user_stake.unstake_requests[idx];
-    require!(!request.is_empty(), ErrorCode::InvalidUnstakeRequestId);
+    // Validate request exists and capture data before mutable borrow
+    require!(
+        !user_stake.unstake_requests[idx].is_empty(),
+        ErrorCode::InvalidUnstakeRequestId
+    );
+
+    // IMPORTANT: Refresh rewards BEFORE changing stake amount
+    refresh_user_rewards(user_stake, stake_vault)?;
 
     // Calculate the remaining unclaimed amount (what we're canceling)
     // The user keeps what they've already claimed, but the rest goes back to active stake
-    let remaining_amount = request
+    let remaining_amount = user_stake.unstake_requests[idx]
         .total_amount
-        .checked_sub(request.claimed_amount)
+        .checked_sub(user_stake.unstake_requests[idx].claimed_amount)
         .ok_or(ErrorCode::MathOverflow)?;
 
     // Move remaining tokens back to active stake
@@ -66,9 +73,9 @@ pub fn handler(ctx: Context<CancelUnstake>, params: CancelUnstakeParams) -> Resu
         .checked_add(remaining_amount)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    stake_vault.stake_stats.pending_unlock = stake_vault
+    stake_vault.stake_stats.unstaking_amount = stake_vault
         .stake_stats
-        .pending_unlock
+        .unstaking_amount
         .checked_sub(remaining_amount)
         .ok_or(ErrorCode::MathOverflow)?;
 
@@ -79,6 +86,9 @@ pub fn handler(ctx: Context<CancelUnstake>, params: CancelUnstakeParams) -> Resu
     }
     user_stake.unstake_requests[last_idx] = UnstakeRequest::default();
     user_stake.unstake_request_count -= 1;
+
+    // Update reward snapshot for new stake amount
+    update_reward_snapshot_after_stake_change(user_stake, stake_vault)?;
 
     user_stake.last_update_timestamp = current_timestamp;
 

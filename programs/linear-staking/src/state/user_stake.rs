@@ -63,6 +63,17 @@ impl UnstakeRequest {
 /// Maximum number of concurrent unstake requests per user
 pub const MAX_UNSTAKE_REQUESTS: usize = 5;
 
+/// Tracks user's reward accumulation state
+#[derive(Copy, Clone, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, Default, Debug)]
+pub struct UserRewardState {
+    /// User's snapshot of reward_per_token_staked at last update (scaled by PRECISION)
+    pub reward_snapshot: u128,
+    /// Unclaimed rewards accumulated for this user
+    pub unclaimed_rewards: u64,
+    /// Total rewards claimed by this user (for tracking/analytics)
+    pub total_claimed: u64,
+}
+
 #[account]
 #[derive(Default, Debug)]
 pub struct UserStake {
@@ -74,21 +85,26 @@ pub struct UserStake {
     pub bump: u8,
     /// Number of active unstake requests
     pub unstake_request_count: u8,
-    /// Currently staked tokens (earning rewards, if applicable)
+    /// Currently staked tokens (earning rewards)
     pub active_stake_amount: u64,
+    /// Stake amount from vested sources (tracking only, earns rewards same as active)
+    pub vested_stake_amount: u64,
     /// Array of unstake requests with linear vesting
     pub unstake_requests: [UnstakeRequest; MAX_UNSTAKE_REQUESTS],
+    /// User's reward tracking state
+    pub reward_state: UserRewardState,
     /// Last update timestamp
     pub last_update_timestamp: i64,
     /// Padding for future use
-    pub padding: [u64; 4],
+    pub padding: [u64; 2],
 }
 
 impl UserStake {
     pub const LEN: usize = 8 + std::mem::size_of::<UserStake>();
 
-    /// Get the total amount currently in linear unlock across all requests
-    pub fn get_total_pending_unlock(&self) -> u64 {
+    /// Get the total amount currently unstaking (in linear vesting) across all requests.
+    /// This is the remaining unclaimed amount that will gradually become claimable.
+    pub fn get_total_unstaking(&self) -> u64 {
         self.unstake_requests
             .iter()
             .map(|r| r.total_amount.saturating_sub(r.claimed_amount))

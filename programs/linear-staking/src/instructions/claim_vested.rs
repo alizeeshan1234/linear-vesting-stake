@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked};
 
 use crate::{
     constants::{STAKE_VAULT_SEED, STAKE_VAULT_TOKEN_ACCOUNT_SEED, TRANSFER_AUTHORITY_SEED, USER_STAKE_SEED},
@@ -18,7 +18,7 @@ pub struct ClaimVested<'info> {
         constraint = user_token_account.mint == stake_vault.token_mint,
         constraint = user_token_account.owner == owner.key()
     )]
-    pub user_token_account: Account<'info, TokenAccount>,
+    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
@@ -32,7 +32,7 @@ pub struct ClaimVested<'info> {
         seeds = [STAKE_VAULT_TOKEN_ACCOUNT_SEED],
         bump = stake_vault.token_account_bump
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: InterfaceAccount<'info, TokenAccount>,
 
     /// CHECK: PDA used as transfer authority
     #[account(
@@ -49,8 +49,8 @@ pub struct ClaimVested<'info> {
     )]
     pub user_stake: Account<'info, UserStake>,
 
-    pub token_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
+    pub token_mint: InterfaceAccount<'info, Mint>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
@@ -115,14 +115,15 @@ pub fn handler(ctx: Context<ClaimVested>, params: ClaimVestedParams) -> Result<(
         &[stake_vault.transfer_authority_bump],
     ]];
 
-    let cpi_accounts = Transfer {
+    let cpi_accounts = TransferChecked {
         from: ctx.accounts.vault_token_account.to_account_info(),
+        mint: ctx.accounts.token_mint.to_account_info(),
         to: ctx.accounts.user_token_account.to_account_info(),
         authority: ctx.accounts.transfer_authority.to_account_info(),
     };
     let cpi_program = ctx.accounts.token_program.to_account_info();
     let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, authority_seeds);
-    transfer(cpi_ctx, total_claimable)?;
+    transfer_checked(cpi_ctx, total_claimable, ctx.accounts.token_mint.decimals)?;
 
     // Update vault stats
     let stake_vault = &mut ctx.accounts.stake_vault;

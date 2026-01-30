@@ -4,6 +4,7 @@ use crate::{
     constants::{STAKE_VAULT_SEED, USER_STAKE_SEED},
     error::ErrorCode,
     state::{user_stake::MAX_UNSTAKE_REQUESTS, StakeVault, UnstakeRequest, UserStake},
+    instructions::helpers::{refresh_user_rewards, update_reward_snapshot_after_stake_change},
 };
 
 #[derive(Accounts)]
@@ -55,6 +56,9 @@ pub fn handler(ctx: Context<UnstakeRequestCtx>, params: UnstakeRequestParams) ->
         ErrorCode::MaxUnstakeRequestsReached
     );
 
+    // IMPORTANT: Refresh rewards BEFORE changing stake amount
+    refresh_user_rewards(user_stake, stake_vault)?;
+
     // Find an empty slot
     let slot_index = user_stake
         .find_empty_slot()
@@ -91,11 +95,14 @@ pub fn handler(ctx: Context<UnstakeRequestCtx>, params: UnstakeRequestParams) ->
         .checked_sub(params.amount)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    stake_vault.stake_stats.pending_unlock = stake_vault
+    stake_vault.stake_stats.unstaking_amount = stake_vault
         .stake_stats
-        .pending_unlock
+        .unstaking_amount
         .checked_add(params.amount)
         .ok_or(ErrorCode::MathOverflow)?;
+
+    // Update reward snapshot for new stake amount
+    update_reward_snapshot_after_stake_change(user_stake, stake_vault)?;
 
     msg!(
         "Unstake request created for {} tokens. Linear unlock over {} seconds (ends at {})",

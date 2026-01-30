@@ -28,4 +28,13 @@ pub enum ErrorCode {
 
     #[msg("Unauthorized access")]
     Unauthorized,
+
+    #[msg("No rewards available to claim")]
+    NoRewardsToClaim,
+
+    #[msg("No active stake to distribute rewards")]
+    NoActiveStake,
+
+    #[msg("No pending rewards to distribute")]
+    NoPendingRewards,
 }
