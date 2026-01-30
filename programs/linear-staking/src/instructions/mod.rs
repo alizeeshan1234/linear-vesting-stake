@@ -7,6 +7,7 @@ pub mod helpers;
 pub mod deposit_rewards;
 pub mod distribute_rewards;
 pub mod collect_rewards;
+pub mod admin_instructions;
 
 pub use initialize::*;
 pub use deposit_stake::*;
@@ -17,3 +18,4 @@ pub use helpers::*;
 pub use deposit_rewards::*;
 pub use distribute_rewards::*;
 pub use collect_rewards::*;
+pub use admin_instructions::*;

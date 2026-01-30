@@ -5,6 +5,7 @@ pub const MAX_UNSTAKE_REQUESTS: usize = 32;
 #[account]
 #[derive(Debug, InitSpace)]
 pub struct StakeVault {
+    pub is_paused: bool,
     pub is_initialized: bool,
     pub bump: u8,
     pub token_account_bump: u8,

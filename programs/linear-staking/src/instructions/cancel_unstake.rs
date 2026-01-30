@@ -52,6 +52,11 @@ pub fn handler(ctx: Context<CancelUnstake>, params: CancelUnstakeParams) -> Resu
         ErrorCode::InvalidRequestIndex
     );
 
+    require!(
+        !stake_vault.is_paused,
+        ErrorCode::VaultPaused
+    );
+
     // Refresh user rewards before changing stake
     refresh_user_rewards(user_stake, stake_vault)?;
 

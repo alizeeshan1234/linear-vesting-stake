@@ -13,7 +13,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("DiPZqUTup1rsxvfDcBoKdpSno5c1jVmo33xCqFFcQFXW");
+declare_id!("7ci6TH3H4bvyHpJjvyMWMJj91nNsPpg1Hpv43g7tdF9V");
 
 #[program]
 pub mod linear_staking {
@@ -57,5 +57,35 @@ pub mod linear_staking {
     /// User collects their accumulated rewards
     pub fn collect_rewards(ctx: Context<CollectRewards>) -> Result<()> {
         collect_rewards::handler(ctx)
+    }
+
+    // ========================================================================
+    // Admin Instructions
+    // ========================================================================
+
+    /// Pause the vault - disables deposits and other operations
+    pub fn pause_vault(ctx: Context<PauseVault>) -> Result<()> {
+        admin_instructions::pause_handler(ctx)
+    }
+
+    /// Unpause the vault - re-enables operations
+    pub fn unpause_vault(ctx: Context<UnpauseVault>) -> Result<()> {
+        admin_instructions::unpause_handler(ctx)
+    }
+
+    /// Update the vesting period for unstake requests
+    pub fn update_vesting_period(
+        ctx: Context<UpdateVestingPeriod>,
+        params: UpdateVestingPeriodParams,
+    ) -> Result<()> {
+        admin_instructions::update_vesting_period_handler(ctx, params)
+    }
+
+    /// Emergency withdraw tokens from the vault (requires paused state)
+    pub fn emergency_withdraw(
+        ctx: Context<EmergencyWithdrawCtx>,
+        params: EmergencyWithdrawParams,
+    ) -> Result<()> {
+        admin_instructions::emergency_withdraw_handler(ctx, params)
     }
 }

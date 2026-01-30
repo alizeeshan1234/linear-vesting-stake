@@ -38,6 +38,10 @@ pub fn handler(ctx: Context<DistributeRewards>) -> Result<()> {
 
     // Check if there is active stake to distribute to
     require!(total_active_stake > 0, ErrorCode::NoActiveStake);
+    require!(
+        !stake_vault.is_paused,
+        ErrorCode::VaultPaused
+    );
 
     // Calculate reward per token: (pending * PRECISION) / total_active_stake
     let reward_increment = pending

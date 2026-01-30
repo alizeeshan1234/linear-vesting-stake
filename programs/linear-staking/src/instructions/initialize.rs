@@ -63,6 +63,7 @@ pub fn handler(ctx: Context<Initialize>, params: InitializeParams) -> Result<()>
 
     let stake_vault = &mut ctx.accounts.stake_vault;
 
+    stake_vault.is_paused = false;
     stake_vault.is_initialized = true;
     stake_vault.bump = ctx.bumps.stake_vault;
     stake_vault.token_account_bump = ctx.bumps.vault_token_account;

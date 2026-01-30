@@ -67,6 +67,11 @@ pub fn handler(ctx: Context<ClaimVested>) -> Result<()> {
     let vesting_period = stake_vault.vesting_period_seconds;
     let mut total_claimable: u64 = 0;
 
+    require!(
+        stake_vault.is_paused == false,
+        ErrorCode::VaultPaused
+    );
+
     for unstake_request in user_stake.unstake_requests.iter_mut() {
         let claimable = unstake_request.claimable_amount(current_time, vesting_period);
 

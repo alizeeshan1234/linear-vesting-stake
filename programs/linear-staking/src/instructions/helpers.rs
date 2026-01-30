@@ -14,20 +14,23 @@ pub fn refresh_user_rewards(
 ) -> Result<()> {
     let global_reward_per_token = stake_vault.reward_state.reward_per_token_staked;
 
-    if user_stake.active_stake_amount == 0 {
-        // No stake, just update snapshot to current global value
-        user_stake.reward_state.reward_snapshot = global_reward_per_token;
-        return Ok(());
-    }
-
     // Calculate current watermark for user's stake
+    // watermark = stake * global_rate / PRECISION
     let current_watermark = (user_stake.active_stake_amount as u128)
         .checked_mul(global_reward_per_token)
         .ok_or(ErrorCode::MathOverflow)?
         .checked_div(PRECISION)
         .ok_or(ErrorCode::MathOverflow)?;
 
+    if user_stake.active_stake_amount == 0 {
+        // No stake, set snapshot to 0 (correct watermark for 0 stake)
+        // When user deposits, update_reward_snapshot_after_stake_change must be called
+        user_stake.reward_state.reward_snapshot = current_watermark;
+        return Ok(());
+    }
+
     // Calculate pending rewards since last snapshot
+    // Both current_watermark and reward_snapshot are in the same units (watermark)
     let pending_rewards = current_watermark
         .saturating_sub(user_stake.reward_state.reward_snapshot) as u64;
 
@@ -38,7 +41,7 @@ pub fn refresh_user_rewards(
         .checked_add(pending_rewards)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    // Update snapshot to current watermark
+    // Update snapshot to current watermark (not raw global_reward_per_token)
     user_stake.reward_state.reward_snapshot = current_watermark;
 
     Ok(())

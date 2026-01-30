@@ -51,6 +51,11 @@ pub fn handler(ctx: Context<UnstakeRequestCtx>, params: UnstakeRequestParams) ->
     );
 
     require!(
+        !stake_vault.is_paused,
+        ErrorCode::VaultPaused
+    );
+
+    require!(
         params.amount > 0 && params.amount <= user_stake.active_stake_amount,
         ErrorCode::InvalidAmount
     );

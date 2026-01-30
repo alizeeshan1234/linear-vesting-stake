@@ -65,6 +65,11 @@ pub fn handler(ctx: Context<CollectRewards>) -> Result<()> {
     let stake_vault = &mut ctx.accounts.stake_vault;
     let current_time = Clock::get()?.unix_timestamp;
 
+    require!(
+        !stake_vault.is_paused,
+        ErrorCode::VaultPaused
+    );
+
     // Refresh rewards to calculate latest unclaimed amount
     refresh_user_rewards(user_stake, stake_vault)?;
 

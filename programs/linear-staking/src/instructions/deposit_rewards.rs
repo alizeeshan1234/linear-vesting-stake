@@ -58,6 +58,12 @@ pub fn handler(ctx: Context<DepositRewards>, params: DepositRewardsParams) -> Re
         ctx.accounts.admin.key() == stake_vault.admin,
         ErrorCode::Unauthorized
     );
+
+    require!(
+        !stake_vault.is_paused,
+        ErrorCode::VaultPaused
+    );
+
     require!(amount > 0, ErrorCode::InvalidAmount);
 
     let cpi_accounts = Transfer {

@@ -68,6 +68,8 @@ pub fn handler(ctx: Context<DepositStake>, params: DepositStakeParams) -> Result
     let clock = Clock::get()?;
 
     require!(amount > 0, ErrorCode::InvalidAmount);
+    
+    require!(!stake_vault.is_paused, ErrorCode::VaultPaused);
 
     if !stake_vault.permissions.allow_deposits {
         return Err(ErrorCode::DepositsNotAllowed.into());

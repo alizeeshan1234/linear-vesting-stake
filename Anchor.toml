@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-linear_staking = "DiPZqUTup1rsxvfDcBoKdpSno5c1jVmo33xCqFFcQFXW"
+linear_staking = "7ci6TH3H4bvyHpJjvyMWMJj91nNsPpg1Hpv43g7tdF9V"
 
 [registry]
 url = "https://api.apr.dev"
@@ -17,3 +17,5 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+test-admin = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/admin-instructions.ts\""
+test-staking = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/linear-staking.ts\""

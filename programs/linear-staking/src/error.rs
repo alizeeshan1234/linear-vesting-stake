@@ -50,5 +50,23 @@ pub enum ErrorCode {
     #[msg("No amount to cancel")]
     NoAmountToCancel,
 
-    NumericalOverflow
+    NumericalOverflow,
+
+    #[msg("Vault is paused")]
+    VaultPaused,
+
+    #[msg("Vault is already paused")]
+    VaultAlreadyPaused,
+
+    #[msg("Vault is not paused")]
+    NotPaused,
+
+    #[msg("Vault must be paused for emergency withdraw")]
+    VaultNotPaused,
+
+    #[msg("Invalid vesting period")]
+    InvalidVestingPeriod,
+
+    #[msg("Insufficient vault balance")]
+    InsufficientVaultBalance,
 }
