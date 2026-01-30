@@ -1,23 +1,27 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount};
-
-use crate::{
-    constants::{DEFAULT_VESTING_PERIOD, STAKE_VAULT_SEED, STAKE_VAULT_TOKEN_ACCOUNT_SEED, TRANSFER_AUTHORITY_SEED},
-    state::{StakePermissions, StakeVault},
-};
+use anchor_spl::{token::{Mint, TokenAccount, Token}};
+use crate::{StakeVault, constants::{
+    STAKE_VAULT_SEED,
+    STAKE_VAULT_TOKEN_ACCOUNT_SEED,
+    TRANSFER_AUTHORITY_SEED,
+    DEFAULT_VESTING_PERIOD,
+    EVENT_AUTHORITY_SEED,
+}, StakeStats, RewardState};
+use crate::state::stake_vault::StakePermissions;
+use crate::events::VaultInitialized;
+use crate::program::LinearStaking;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// The token mint for the token being staked
     pub token_mint: Account<'info, Mint>,
 
     #[account(
         init,
         payer = admin,
-        space = StakeVault::LEN,
+        space = 8 + StakeVault::INIT_SPACE,
         seeds = [STAKE_VAULT_SEED],
         bump
     )]
@@ -26,14 +30,13 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = admin,
-        seeds = [STAKE_VAULT_TOKEN_ACCOUNT_SEED],
-        bump,
         token::mint = token_mint,
         token::authority = transfer_authority,
+        seeds = [STAKE_VAULT_TOKEN_ACCOUNT_SEED],
+        bump
     )]
     pub vault_token_account: Account<'info, TokenAccount>,
 
-    /// CHECK: PDA used as transfer authority
     #[account(
         seeds = [TRANSFER_AUTHORITY_SEED],
         bump
@@ -41,16 +44,23 @@ pub struct Initialize<'info> {
     pub transfer_authority: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
+
     pub token_program: Program<'info, Token>,
+
+    /// CHECK: event authority for emit_cpi
+    #[account(seeds = [EVENT_AUTHORITY_SEED], bump)]
+    pub event_authority: AccountInfo<'info>,
+
+    pub program: Program<'info, LinearStaking>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct InitializeParams {
-    /// Optional custom vesting period in seconds (defaults to 30 days)
     pub vesting_period: Option<i64>,
 }
 
 pub fn handler(ctx: Context<Initialize>, params: InitializeParams) -> Result<()> {
+
     let stake_vault = &mut ctx.accounts.stake_vault;
 
     stake_vault.is_initialized = true;
@@ -64,9 +74,20 @@ pub fn handler(ctx: Context<Initialize>, params: InitializeParams) -> Result<()>
         allow_deposits: true,
         allow_withdrawals: true,
     };
-    stake_vault.vesting_period = params.vesting_period.unwrap_or(DEFAULT_VESTING_PERIOD);
+    stake_vault.vesting_period_seconds = params.vesting_period.unwrap_or(DEFAULT_VESTING_PERIOD) as u64;
+    stake_vault.stake_stats = StakeStats::default();
+    stake_vault.reward_state = RewardState::default();
+    stake_vault.start_time = Clock::get()?.unix_timestamp;
+    stake_vault.collective_unstake_requests_count = 0;
 
-    msg!("Stake vault initialized with vesting period: {} seconds", stake_vault.vesting_period);
+    emit_cpi!(VaultInitialized {
+        admin: ctx.accounts.admin.key(),
+        token_mint: ctx.accounts.token_mint.key(),
+        vesting_period_seconds: stake_vault.vesting_period_seconds,
+        timestamp: stake_vault.start_time,
+    });
+
+    msg!("Stake vault initialized successfully");
 
     Ok(())
 }

@@ -2,16 +2,18 @@
 
 pub mod constants;
 pub mod error;
+pub mod events;
 pub mod instructions;
 pub mod state;
 
 use anchor_lang::prelude::*;
 
 pub use constants::*;
+pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("8EipwhySUKEhFULikiYurRNZezFrE3ttpJELCTQDCbgx");
+declare_id!("DiPZqUTup1rsxvfDcBoKdpSno5c1jVmo33xCqFFcQFXW");
 
 #[program]
 pub mod linear_staking {
@@ -33,8 +35,8 @@ pub mod linear_staking {
     }
 
     /// Claim vested (unlocked) tokens from unstake requests
-    pub fn claim_vested(ctx: Context<ClaimVested>, params: ClaimVestedParams) -> Result<()> {
-        claim_vested::handler(ctx, params)
+    pub fn claim_vested(ctx: Context<ClaimVested>) -> Result<()> {
+        claim_vested::handler(ctx)
     }
 
     /// Cancel an unstake request and return remaining tokens to active stake
@@ -48,12 +50,12 @@ pub mod linear_staking {
     }
 
     /// Distribute pending rewards to the global accumulator (permissionless crank)
-    pub fn distribute_rewards(ctx: Context<DistributeRewards>, params: DistributeRewardsParams) -> Result<()> {
-        distribute_rewards::handler(ctx, params)
+    pub fn distribute_rewards(ctx: Context<DistributeRewards>) -> Result<()> {
+        distribute_rewards::handler(ctx)
     }
 
     /// User collects their accumulated rewards
-    pub fn collect_rewards(ctx: Context<CollectRewards>, params: CollectRewardsParams) -> Result<()> {
-        collect_rewards::handler(ctx, params)
+    pub fn collect_rewards(ctx: Context<CollectRewards>) -> Result<()> {
+        collect_rewards::handler(ctx)
     }
 }

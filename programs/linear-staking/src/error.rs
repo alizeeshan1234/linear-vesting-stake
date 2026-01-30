@@ -37,4 +37,18 @@ pub enum ErrorCode {
 
     #[msg("No pending rewards to distribute")]
     NoPendingRewards,
+
+    #[msg("Deposits not allowed")]
+    DepositsNotAllowed,
+
+    #[msg("No claimable amount available")]
+    NoClaimableAmount,
+
+    #[msg("Invalid request index")]
+    InvalidRequestIndex,
+
+    #[msg("No amount to cancel")]
+    NoAmountToCancel,
+
+    NumericalOverflow
 }

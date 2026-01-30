@@ -20,3 +20,7 @@ pub const TOKEN_DECIMALS: u8 = 9;
 
 /// Precision for calculations
 pub const PRECISION: u128 = 1_000_000_000_000; // 10^12
+
+/// Event authority seed for emit_cpi
+#[constant]
+pub const EVENT_AUTHORITY_SEED: &[u8] = b"__event_authority";

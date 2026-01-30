@@ -1,10 +1,12 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{STAKE_VAULT_SEED, USER_STAKE_SEED},
+    constants::{STAKE_VAULT_SEED, USER_STAKE_SEED, EVENT_AUTHORITY_SEED},
     error::ErrorCode,
-    state::{StakeVault, UnstakeRequest, UserStake},
+    events::UnstakeCancelled,
+    state::{StakeVault, UserStake},
     instructions::helpers::{refresh_user_rewards, update_reward_snapshot_after_stake_change},
+    program::LinearStaking,
 };
 
 #[derive(Accounts)]
@@ -25,42 +27,46 @@ pub struct CancelUnstake<'info> {
         constraint = user_stake.owner == owner.key() @ ErrorCode::Unauthorized
     )]
     pub user_stake: Account<'info, UserStake>,
+
+    /// CHECK: event authority for emit_cpi
+    #[account(seeds = [EVENT_AUTHORITY_SEED], bump)]
+    pub event_authority: AccountInfo<'info>,
+
+    pub program: Program<'info, LinearStaking>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct CancelUnstakeParams {
-    /// The request ID to cancel
-    pub request_id: u8,
+    pub request_index: u8,
 }
 
 pub fn handler(ctx: Context<CancelUnstake>, params: CancelUnstakeParams) -> Result<()> {
     let stake_vault = &mut ctx.accounts.stake_vault;
     let user_stake = &mut ctx.accounts.user_stake;
-    let current_timestamp = Clock::get()?.unix_timestamp;
+    let current_time = Clock::get()?.unix_timestamp;
+    let request_index = params.request_index as usize;
 
-    let idx = params.request_id as usize;
+    // Validate request index
     require!(
-        idx < user_stake.unstake_request_count as usize,
-        ErrorCode::InvalidUnstakeRequestId
+        request_index < user_stake.unstake_requests.len(),
+        ErrorCode::InvalidRequestIndex
     );
 
-    // Validate request exists and capture data before mutable borrow
-    require!(
-        !user_stake.unstake_requests[idx].is_empty(),
-        ErrorCode::InvalidUnstakeRequestId
-    );
-
-    // IMPORTANT: Refresh rewards BEFORE changing stake amount
+    // Refresh user rewards before changing stake
     refresh_user_rewards(user_stake, stake_vault)?;
 
-    // Calculate the remaining unclaimed amount (what we're canceling)
-    // The user keeps what they've already claimed, but the rest goes back to active stake
-    let remaining_amount = user_stake.unstake_requests[idx]
+    // Get the unstake request
+    let unstake_request = &user_stake.unstake_requests[request_index];
+
+    // Calculate remaining unclaimed amount (this is what gets returned to active stake)
+    let remaining_amount = unstake_request
         .total_amount
-        .checked_sub(user_stake.unstake_requests[idx].claimed_amount)
+        .checked_sub(unstake_request.claimed_amount)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    // Move remaining tokens back to active stake
+    require!(remaining_amount > 0, ErrorCode::NoAmountToCancel);
+
+    // Update user stake - move remaining back to active
     user_stake.active_stake_amount = user_stake
         .active_stake_amount
         .checked_add(remaining_amount)
@@ -79,24 +85,20 @@ pub fn handler(ctx: Context<CancelUnstake>, params: CancelUnstakeParams) -> Resu
         .checked_sub(remaining_amount)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    // Clear the request by swapping with the last one
-    let last_idx = (user_stake.unstake_request_count - 1) as usize;
-    if idx != last_idx {
-        user_stake.unstake_requests.swap(idx, last_idx);
-    }
-    user_stake.unstake_requests[last_idx] = UnstakeRequest::default();
-    user_stake.unstake_request_count -= 1;
+    // Remove the unstake request
+    user_stake.unstake_requests.remove(request_index);
 
-    // Update reward snapshot for new stake amount
+    // Update reward snapshot after stake change
     update_reward_snapshot_after_stake_change(user_stake, stake_vault)?;
 
-    user_stake.last_update_timestamp = current_timestamp;
+    user_stake.last_update_timestamp = current_time;
 
-    msg!(
-        "Cancelled unstake request. {} tokens returned to active stake. Active stake: {}",
-        remaining_amount,
-        user_stake.active_stake_amount
-    );
+    emit_cpi!(UnstakeCancelled {
+        user: ctx.accounts.owner.key(),
+        request_index: params.request_index,
+        amount_returned: remaining_amount,
+        timestamp: current_time,
+    });
 
     Ok(())
 }

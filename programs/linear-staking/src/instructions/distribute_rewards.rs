@@ -1,9 +1,11 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{PRECISION, STAKE_VAULT_SEED},
+    constants::{PRECISION, STAKE_VAULT_SEED, EVENT_AUTHORITY_SEED},
     error::ErrorCode,
+    events::RewardsDistributed,
     state::StakeVault,
+    program::LinearStaking,
 };
 
 #[derive(Accounts)]
@@ -17,12 +19,15 @@ pub struct DistributeRewards<'info> {
         bump = stake_vault.bump
     )]
     pub stake_vault: Account<'info, StakeVault>,
+
+    /// CHECK: event authority for emit_cpi
+    #[account(seeds = [EVENT_AUTHORITY_SEED], bump)]
+    pub event_authority: AccountInfo<'info>,
+
+    pub program: Program<'info, LinearStaking>,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize)]
-pub struct DistributeRewardsParams {}
-
-pub fn handler(ctx: Context<DistributeRewards>, _params: DistributeRewardsParams) -> Result<()> {
+pub fn handler(ctx: Context<DistributeRewards>) -> Result<()> {
     let stake_vault = &mut ctx.accounts.stake_vault;
 
     let pending = stake_vault.reward_state.pending_rewards;
@@ -58,12 +63,13 @@ pub fn handler(ctx: Context<DistributeRewards>, _params: DistributeRewardsParams
     // Clear pending rewards
     stake_vault.reward_state.pending_rewards = 0;
 
-    msg!(
-        "Distributed {} rewards. New reward_per_token: {}. Total active stake: {}",
-        pending,
-        stake_vault.reward_state.reward_per_token_staked,
-        total_active_stake
-    );
+    emit_cpi!(RewardsDistributed {
+        distributor: ctx.accounts.payer.key(),
+        amount: pending,
+        reward_per_token: stake_vault.reward_state.reward_per_token_staked,
+        total_active_stake,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

@@ -3,9 +3,17 @@ pub mod deposit_stake;
 pub mod unstake_request;
 pub mod claim_vested;
 pub mod cancel_unstake;
+pub mod helpers;
+pub mod deposit_rewards;
+pub mod distribute_rewards;
+pub mod collect_rewards;
 
 pub use initialize::*;
 pub use deposit_stake::*;
 pub use unstake_request::*;
 pub use claim_vested::*;
 pub use cancel_unstake::*;
+pub use helpers::*;
+pub use deposit_rewards::*;
+pub use distribute_rewards::*;
+pub use collect_rewards::*;

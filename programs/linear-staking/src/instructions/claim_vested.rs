@@ -1,10 +1,12 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, Mint, TokenAccount, TokenInterface, TransferChecked};
+use anchor_spl::token::{transfer, Token, TokenAccount, Transfer};
 
 use crate::{
-    constants::{STAKE_VAULT_SEED, STAKE_VAULT_TOKEN_ACCOUNT_SEED, TRANSFER_AUTHORITY_SEED, USER_STAKE_SEED},
+    constants::{STAKE_VAULT_SEED, STAKE_VAULT_TOKEN_ACCOUNT_SEED, TRANSFER_AUTHORITY_SEED, USER_STAKE_SEED, EVENT_AUTHORITY_SEED},
     error::ErrorCode,
+    events::VestedTokensClaimed,
     state::{StakeVault, UserStake},
+    program::LinearStaking,
 };
 
 #[derive(Accounts)]
@@ -12,102 +14,74 @@ pub struct ClaimVested<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    /// User's token account to receive claimed tokens
     #[account(
         mut,
-        constraint = user_token_account.mint == stake_vault.token_mint,
-        constraint = user_token_account.owner == owner.key()
+        seeds = [USER_STAKE_SEED, owner.key().as_ref()],
+        bump
     )]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
+    pub user_stake: Account<'info, UserStake>,
 
     #[account(
         mut,
         seeds = [STAKE_VAULT_SEED],
-        bump = stake_vault.bump
+        bump
     )]
     pub stake_vault: Account<'info, StakeVault>,
 
     #[account(
         mut,
-        seeds = [STAKE_VAULT_TOKEN_ACCOUNT_SEED],
-        bump = stake_vault.token_account_bump
+        constraint = user_token_account.mint == stake_vault.token_mint,
+        constraint = user_token_account.owner == owner.key()
     )]
-    pub vault_token_account: InterfaceAccount<'info, TokenAccount>,
-
-    /// CHECK: PDA used as transfer authority
-    #[account(
-        seeds = [TRANSFER_AUTHORITY_SEED],
-        bump = stake_vault.transfer_authority_bump
-    )]
-    pub transfer_authority: AccountInfo<'info>,
+    pub user_token_account: Account<'info, TokenAccount>,
 
     #[account(
         mut,
-        seeds = [USER_STAKE_SEED, owner.key().as_ref()],
-        bump = user_stake.bump,
-        constraint = user_stake.owner == owner.key() @ ErrorCode::Unauthorized
+        seeds = [STAKE_VAULT_TOKEN_ACCOUNT_SEED],
+        bump
     )]
-    pub user_stake: Account<'info, UserStake>,
+    pub vault_token_account: Account<'info, TokenAccount>,
 
-    pub token_mint: InterfaceAccount<'info, Mint>,
-    pub token_program: Interface<'info, TokenInterface>,
+    #[account(
+        seeds = [TRANSFER_AUTHORITY_SEED],
+        bump
+    )]
+    pub transfer_authority: AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    pub token_program: Program<'info, Token>,
+
+    /// CHECK: event authority for emit_cpi
+    #[account(seeds = [EVENT_AUTHORITY_SEED], bump)]
+    pub event_authority: AccountInfo<'info>,
+
+    pub program: Program<'info, LinearStaking>,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize)]
-pub struct ClaimVestedParams {
-    /// Optional: specific request ID to claim from. If None, claims from all requests.
-    pub request_id: Option<u8>,
-}
-
-pub fn handler(ctx: Context<ClaimVested>, params: ClaimVestedParams) -> Result<()> {
-    let stake_vault = &ctx.accounts.stake_vault;
+pub fn handler(ctx: Context<ClaimVested>) -> Result<()> {
     let user_stake = &mut ctx.accounts.user_stake;
-    let current_timestamp = Clock::get()?.unix_timestamp;
+    let stake_vault = &mut ctx.accounts.stake_vault;
+    let current_time = Clock::get()?.unix_timestamp;
 
-    // Check permissions
-    require!(
-        stake_vault.permissions.allow_withdrawals,
-        ErrorCode::WithdrawalsDisabled
-    );
+    let vesting_period = stake_vault.vesting_period_seconds;
+    let mut total_claimable: u64 = 0;
 
-    let total_claimable: u64;
+    for unstake_request in user_stake.unstake_requests.iter_mut() {
+        let claimable = unstake_request.claimable_amount(current_time, vesting_period);
 
-    if let Some(request_id) = params.request_id {
-        // Claim from specific request
-        let idx = request_id as usize;
-        require!(
-            idx < user_stake.unstake_request_count as usize,
-            ErrorCode::InvalidUnstakeRequestId
-        );
-
-        let request = &mut user_stake.unstake_requests[idx];
-        let claimable = request.get_claimable_amount(current_timestamp);
-        require!(claimable > 0, ErrorCode::NoVestedTokens);
-
-        request.claimed_amount = request
-            .claimed_amount
-            .checked_add(claimable)
-            .ok_or(ErrorCode::MathOverflow)?;
-
-        total_claimable = claimable;
-    } else {
-        // Claim from all requests
-        total_claimable = user_stake.get_total_claimable(current_timestamp);
-        require!(total_claimable > 0, ErrorCode::NoVestedTokens);
-
-        // Update claimed amounts for each request
-        for request in user_stake.unstake_requests.iter_mut() {
-            if !request.is_empty() {
-                let claimable = request.get_claimable_amount(current_timestamp);
-                if claimable > 0 {
-                    request.claimed_amount = request
-                        .claimed_amount
-                        .checked_add(claimable)
-                        .ok_or(ErrorCode::MathOverflow)?;
-                }
-            }
+        if claimable > 0 {
+            unstake_request.claimed_amount = unstake_request
+                .claimed_amount
+                .checked_add(claimable)
+                .ok_or(ErrorCode::MathOverflow)?;
+            total_claimable = total_claimable
+                .checked_add(claimable)
+                .ok_or(ErrorCode::MathOverflow)?;
         }
     }
+
+    require!(total_claimable > 0, ErrorCode::NoClaimableAmount);
 
     // Transfer tokens from vault to user
     let authority_seeds: &[&[&[u8]]] = &[&[
@@ -115,33 +89,56 @@ pub fn handler(ctx: Context<ClaimVested>, params: ClaimVestedParams) -> Result<(
         &[stake_vault.transfer_authority_bump],
     ]];
 
-    let cpi_accounts = TransferChecked {
+    let cpi_accounts = Transfer {
         from: ctx.accounts.vault_token_account.to_account_info(),
-        mint: ctx.accounts.token_mint.to_account_info(),
         to: ctx.accounts.user_token_account.to_account_info(),
         authority: ctx.accounts.transfer_authority.to_account_info(),
     };
+
     let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, authority_seeds);
-    transfer_checked(cpi_ctx, total_claimable, ctx.accounts.token_mint.decimals)?;
+    let cpi_context = CpiContext::new_with_signer(cpi_program, cpi_accounts, authority_seeds);
+
+    transfer(cpi_context, total_claimable)?;
 
     // Update vault stats
-    let stake_vault = &mut ctx.accounts.stake_vault;
-    stake_vault.stake_stats.pending_unlock = stake_vault
+    stake_vault.stake_stats.unstaking_amount = stake_vault
         .stake_stats
-        .pending_unlock
+        .unstaking_amount
         .checked_sub(total_claimable)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    // Clean up fully claimed requests
-    user_stake.cleanup_claimed_requests();
-    user_stake.last_update_timestamp = current_timestamp;
+    stake_vault.stake_stats.total_staked = stake_vault
+        .stake_stats
+        .total_staked
+        .checked_sub(total_claimable)
+        .ok_or(ErrorCode::MathOverflow)?;
 
-    msg!(
-        "Claimed {} vested tokens. Remaining pending unlock: {}",
-        total_claimable,
-        user_stake.get_total_pending_unlock()
-    );
+    stake_vault.stake_stats.total_vested = stake_vault
+        .stake_stats
+        .total_vested
+        .checked_add(total_claimable)
+        .ok_or(ErrorCode::MathOverflow)?;
+
+    // Update user stake
+    user_stake.vested_stake_amount = user_stake
+        .vested_stake_amount
+        .checked_add(total_claimable)
+        .ok_or(ErrorCode::MathOverflow)?;
+
+    user_stake.staked_amount = user_stake
+        .staked_amount
+        .checked_sub(total_claimable)
+        .ok_or(ErrorCode::MathOverflow)?;
+
+    user_stake.cleanup_claimed_requests();
+    user_stake.last_update_timestamp = current_time;
+
+    emit_cpi!(VestedTokensClaimed {
+        user: ctx.accounts.owner.key(),
+        amount: total_claimable,
+        remaining_unstaking: user_stake.get_total_unstaking_amount(),
+        timestamp: current_time,
+    });
 
     Ok(())
 }
