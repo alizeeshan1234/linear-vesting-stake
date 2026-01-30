@@ -13,7 +13,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("7ci6TH3H4bvyHpJjvyMWMJj91nNsPpg1Hpv43g7tdF9V");
+declare_id!("EFnp3eSkiE1D7H2GTPxQyWbHZoLWPJ7VjRsJnMgwdaPf");
 
 #[program]
 pub mod linear_staking {
