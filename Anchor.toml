@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-linear_staking = "EFnp3eSkiE1D7H2GTPxQyWbHZoLWPJ7VjRsJnMgwdaPf"
+linear_staking = "8Q7GV6Hw2x1FRvV1TUG5LQvUea82HuS2HK297q7LzWDv"
 
 [registry]
 url = "https://api.apr.dev"

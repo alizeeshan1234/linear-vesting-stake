@@ -152,42 +152,86 @@ pub struct EmergencyWithdrawParams {
     pub amount: u64,                                                                                                                                                                                               
 }     
 
-pub fn emergency_withdraw_handler(                                                                                                                                                                                 
-    ctx: Context<EmergencyWithdrawCtx>,                                                                                                                                                                            
-    params: EmergencyWithdrawParams,                                                                                                                                                                               
-) -> Result<()> {                                                                                                                                                                                                  
-    let stake_vault = &mut ctx.accounts.stake_vault;                                                                                                                                                               
-                                                                                                                                                                                                                    
-    // Must be paused for emergency withdraw                                                                                                                                                                       
-    require!(stake_vault.is_paused, ErrorCode::VaultNotPaused);                                                                                                                                                    
-                                                                                                                                                                                                                    
-    let vault_balance = ctx.accounts.vault_token_account.amount;                                                                                                                                                   
-    let withdraw_amount = if params.amount == 0 {                                                                                                                                                                  
-        vault_balance                                                                                                                                                                                              
-    } else {                                                                                                                                                                                                       
-        params.amount                                                                                                                                                                                              
-    };                                                                                                                                                                                                             
-                                                                                                                                                                                                                    
-    require!(withdraw_amount > 0, ErrorCode::InvalidAmount);                                                                                                                                                       
-    require!(withdraw_amount <= vault_balance, ErrorCode::InsufficientVaultBalance);                                                                                                                               
-                                                                                                                                                                                                                    
-    // Transfer tokens from vault to admin                                                                                                                                                                         
-    let seeds = &[TRANSFER_AUTHORITY_SEED, &[stake_vault.transfer_authority_bump]];                                                                                                                                
-    let signer_seeds = &[&seeds[..]];                                                                                                                                                                              
-                                                                                                                                                                                                                    
-    token::transfer(                                                                                                                                                                                               
-        CpiContext::new_with_signer(                                                                                                                                                                               
-            ctx.accounts.token_program.to_account_info(),                                                                                                                                                          
-            Transfer {                                                                                                                                                                                             
-                from: ctx.accounts.vault_token_account.to_account_info(),                                                                                                                                          
-                to: ctx.accounts.admin_token_account.to_account_info(),                                                                                                                                            
-                authority: ctx.accounts.transfer_authority.to_account_info(),                                                                                                                                      
-            },                                                                                                                                                                                                     
-            signer_seeds,                                                                                                                                                                                          
-        ),                                                                                                                                                                                                         
-        withdraw_amount,                                                                                                                                                                                           
-    )?;                                                                                                                                                                                                                                                                                                                                                                                                     
-                                                                                                                                                                                                                    
-    msg!("Emergency withdraw: {} tokens", withdraw_amount);                                                                                                                                                        
-    Ok(())                                                                                                                                                                                                         
+pub fn emergency_withdraw_handler(
+    ctx: Context<EmergencyWithdrawCtx>,
+    params: EmergencyWithdrawParams,
+) -> Result<()> {
+    let stake_vault = &mut ctx.accounts.stake_vault;
+
+    // Must be paused for emergency withdraw
+    require!(stake_vault.is_paused, ErrorCode::VaultNotPaused);
+
+    let vault_balance = ctx.accounts.vault_token_account.amount;
+    let withdraw_amount = if params.amount == 0 {
+        vault_balance
+    } else {
+        params.amount
+    };
+
+    require!(withdraw_amount > 0, ErrorCode::InvalidAmount);
+    require!(withdraw_amount <= vault_balance, ErrorCode::InsufficientVaultBalance);
+
+    // Transfer tokens from vault to admin
+    let seeds = &[TRANSFER_AUTHORITY_SEED, &[stake_vault.transfer_authority_bump]];
+    let signer_seeds = &[&seeds[..]];
+
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.vault_token_account.to_account_info(),
+                to: ctx.accounts.admin_token_account.to_account_info(),
+                authority: ctx.accounts.transfer_authority.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        withdraw_amount,
+    )?;
+
+    msg!("Emergency withdraw: {} tokens", withdraw_amount);
+    Ok(())
+}
+
+// ========================================================================
+// Permission Management
+// ========================================================================
+
+#[derive(Accounts)]
+pub struct UpdatePermissions<'info> {
+    #[account(
+        constraint = admin.key() == stake_vault.admin @ ErrorCode::Unauthorized
+    )]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [STAKE_VAULT_SEED],
+        bump = stake_vault.bump
+    )]
+    pub stake_vault: Account<'info, StakeVault>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+pub struct UpdatePermissionsParams {
+    pub allow_deposits: Option<bool>,
+    pub allow_withdrawals: Option<bool>,
+}
+
+pub fn update_permissions_handler(
+    ctx: Context<UpdatePermissions>,
+    params: UpdatePermissionsParams,
+) -> Result<()> {
+    let stake_vault = &mut ctx.accounts.stake_vault;
+
+    if let Some(allow_deposits) = params.allow_deposits {
+        stake_vault.permissions.allow_deposits = allow_deposits;
+        msg!("Deposits permission set to: {}", allow_deposits);
+    }
+
+    if let Some(allow_withdrawals) = params.allow_withdrawals {
+        stake_vault.permissions.allow_withdrawals = allow_withdrawals;
+        msg!("Withdrawals permission set to: {}", allow_withdrawals);
+    }
+
+    Ok(())
 }         

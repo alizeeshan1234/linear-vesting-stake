@@ -13,7 +13,7 @@ pub use events::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("EFnp3eSkiE1D7H2GTPxQyWbHZoLWPJ7VjRsJnMgwdaPf");
+declare_id!("8Q7GV6Hw2x1FRvV1TUG5LQvUea82HuS2HK297q7LzWDv");
 
 #[program]
 pub mod linear_staking {
@@ -87,5 +87,13 @@ pub mod linear_staking {
         params: EmergencyWithdrawParams,
     ) -> Result<()> {
         admin_instructions::emergency_withdraw_handler(ctx, params)
+    }
+
+    /// Update deposit and withdrawal permissions
+    pub fn update_permissions(
+        ctx: Context<UpdatePermissions>,
+        params: UpdatePermissionsParams,
+    ) -> Result<()> {
+        admin_instructions::update_permissions_handler(ctx, params)
     }
 }

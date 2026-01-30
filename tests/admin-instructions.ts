@@ -395,4 +395,166 @@ describe("admin-instructions", () => {
       assert.include(error.message, "InsufficientVaultBalance");
     }
   });
+
+  // =========================================================================
+  // Update Permissions Tests
+  // =========================================================================
+
+  it("13. should update permissions - disable deposits", async () => {
+    // First unpause the vault for permission tests
+    await program.methods
+      .unpauseVault()
+      .accountsStrict({
+        admin: admin.publicKey,
+        stakeVault: stakeVault,
+      })
+      .rpc();
+
+    const tx = await program.methods
+      .updatePermissions({
+        allowDeposits: false,
+        allowWithdrawals: null,
+      })
+      .accountsStrict({
+        admin: admin.publicKey,
+        stakeVault: stakeVault,
+      })
+      .rpc();
+
+    console.log("Update permissions (disable deposits) tx:", tx);
+
+    const vaultState = await program.account.stakeVault.fetch(stakeVault);
+    assert.equal(vaultState.permissions.allowDeposits, false);
+    assert.equal(vaultState.permissions.allowWithdrawals, true); // Should remain unchanged
+  });
+
+  it("14. should fail deposit when deposits are disabled", async () => {
+    // Deposit some tokens to vault first for testing
+    await mintTo(
+      provider.connection,
+      (admin as any).payer,
+      tokenMint,
+      adminTokenAccount.address,
+      admin.publicKey,
+      STAKE_AMOUNT
+    );
+
+    try {
+      await program.methods
+        .depositStake({
+          amount: new BN(STAKE_AMOUNT),
+        })
+        .accountsStrict({
+          owner: admin.publicKey,
+          userTokenAccount: adminTokenAccount.address,
+          stakeVault: stakeVault,
+          vaultTokenAccount: vaultTokenAccount,
+          userStake: userStake,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          eventAuthority: eventAuthority,
+          program: program.programId,
+        })
+        .rpc();
+
+      assert.fail("Should have thrown an error");
+    } catch (error: any) {
+      assert.include(error.message, "DepositsNotAllowed");
+    }
+  });
+
+  it("15. should update permissions - disable withdrawals", async () => {
+    const tx = await program.methods
+      .updatePermissions({
+        allowDeposits: null,
+        allowWithdrawals: false,
+      })
+      .accountsStrict({
+        admin: admin.publicKey,
+        stakeVault: stakeVault,
+      })
+      .rpc();
+
+    console.log("Update permissions (disable withdrawals) tx:", tx);
+
+    const vaultState = await program.account.stakeVault.fetch(stakeVault);
+    assert.equal(vaultState.permissions.allowDeposits, false); // Should remain unchanged
+    assert.equal(vaultState.permissions.allowWithdrawals, false);
+  });
+
+  it("16. should update permissions - enable both", async () => {
+    const tx = await program.methods
+      .updatePermissions({
+        allowDeposits: true,
+        allowWithdrawals: true,
+      })
+      .accountsStrict({
+        admin: admin.publicKey,
+        stakeVault: stakeVault,
+      })
+      .rpc();
+
+    console.log("Update permissions (enable both) tx:", tx);
+
+    const vaultState = await program.account.stakeVault.fetch(stakeVault);
+    assert.equal(vaultState.permissions.allowDeposits, true);
+    assert.equal(vaultState.permissions.allowWithdrawals, true);
+  });
+
+  it("17. should deposit after re-enabling deposits", async () => {
+    const vaultStateBefore = await program.account.stakeVault.fetch(stakeVault);
+    const totalStakedBefore = vaultStateBefore.stakeStats.totalStaked.toNumber();
+
+    const tx = await program.methods
+      .depositStake({
+        amount: new BN(STAKE_AMOUNT),
+      })
+      .accountsStrict({
+        owner: admin.publicKey,
+        userTokenAccount: adminTokenAccount.address,
+        stakeVault: stakeVault,
+        vaultTokenAccount: vaultTokenAccount,
+        userStake: userStake,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        eventAuthority: eventAuthority,
+        program: program.programId,
+      })
+      .rpc();
+
+    console.log("Deposit after re-enabling tx:", tx);
+
+    const vaultStateAfter = await program.account.stakeVault.fetch(stakeVault);
+    assert.equal(
+      vaultStateAfter.stakeStats.totalStaked.toNumber(),
+      totalStakedBefore + STAKE_AMOUNT
+    );
+  });
+
+  it("18. should update permissions with no changes (both null)", async () => {
+    const vaultStateBefore = await program.account.stakeVault.fetch(stakeVault);
+
+    const tx = await program.methods
+      .updatePermissions({
+        allowDeposits: null,
+        allowWithdrawals: null,
+      })
+      .accountsStrict({
+        admin: admin.publicKey,
+        stakeVault: stakeVault,
+      })
+      .rpc();
+
+    console.log("Update permissions (no changes) tx:", tx);
+
+    const vaultStateAfter = await program.account.stakeVault.fetch(stakeVault);
+    assert.equal(
+      vaultStateAfter.permissions.allowDeposits,
+      vaultStateBefore.permissions.allowDeposits
+    );
+    assert.equal(
+      vaultStateAfter.permissions.allowWithdrawals,
+      vaultStateBefore.permissions.allowWithdrawals
+    );
+  });
 });
